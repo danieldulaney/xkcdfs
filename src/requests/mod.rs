@@ -105,6 +105,8 @@ impl XkcdClient {
             );
         }
 
+        warn!("Could not find latest comic");
+
         None
     }
 
@@ -134,7 +136,11 @@ impl XkcdClient {
                 return Some(c);
             }
         } else {
-            trace!("Skipping the network for comic {} (mode was {:?})", num, mode);
+            trace!(
+                "Skipping the network for comic {} (mode was {:?})",
+                num,
+                mode
+            );
         }
 
         None
@@ -142,34 +148,35 @@ impl XkcdClient {
 
     pub fn request_raw_image(
         &self,
-        num: u32,
+        comic: &Comic,
         timeout: Option<Duration>,
         mode: RequestMode,
     ) -> Option<Vec<u8>> {
-        debug!("Raw image {} requested", num);
+        debug!("Raw image {} requested", comic);
 
         if mode.cache() {
-            trace!("Trying the cache for raw image {}", num);
+            trace!("Trying the cache for raw image {}", comic);
 
-            if let Ok(i) = database::get_raw_image(&self.conn, num) {
+            if let Ok(i) = database::get_raw_image(&self.conn, comic.num) {
                 return Some(i);
             }
         } else {
-            trace!("Skipping the cache for raw image {} (mode was {:?})", num, mode);
+            trace!(
+                "Skipping the cache for raw image {} (mode was {:?})",
+                comic,
+                mode
+            );
         }
 
         if mode.network() {
-            trace!("Trying the network for raw image {}, fetching comic to get URL", num);
-
-            let comic = self.request_comic(num, timeout, mode)?;
-
-            trace!("Got comic data {} with URL {}", comic, comic.img_url);
-
             if let Some(i) = api::get_image(&self.client, &comic) {
                 database::insert_raw_image(&self.conn, comic.num, &i).ok();
                 return Some(i);
             } else {
-                warn!("Could not get raw image {} from URL {}", comic, comic.img_url);
+                warn!(
+                    "Could not get raw image {} from URL {}",
+                    comic, comic.img_url
+                );
             }
         }
 
@@ -195,8 +202,12 @@ impl XkcdClient {
         }
 
         if mode.render() {
-            trace!("Getting the rendered image for {} with mode {:?}", comic, mode);
-            let raw_image = self.request_raw_image(comic.num, timeout, mode)?;
+            trace!(
+                "Getting the rendered image for {} with mode {:?}",
+                comic,
+                mode
+            );
+            let raw_image = self.request_raw_image(comicnum, timeout, mode)?;
 
             trace!("Rendering image fresh from raw image for {}", comic);
 
@@ -204,10 +215,13 @@ impl XkcdClient {
                 Ok(image) => {
                     trace!("Successfully rendered {}", comic);
                     if let Err(e) = database::insert_rendered_image(&self.conn, comic.num, &image) {
-                        warn!("Failed to store rendered image for {} in the cache: {}", comic, e);
+                        warn!(
+                            "Failed to store rendered image for {} in the cache: {}",
+                            comic, e
+                        );
                     }
-                    return Some(image)
-                },
+                    return Some(image);
+                }
                 Err(e) => {
                     warn!("Error rendering {}: {}", comic, e);
                 }
