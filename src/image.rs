@@ -81,6 +81,29 @@ fn jpeg_to_cairo(
 
             Ok((new_stride, new_data))
         }
+        (PixelFormat::L8, Format::Rgb24) => {
+            let mut new_data: Vec<u8> = Vec::with_capacity(new_stride * height);
+
+            for row in 0..height {
+                new_data.resize_with(row * new_stride, Default::default);
+
+                for col in 0..width {
+                    let old_index = row * old_stride + col * old_pixel_size;
+
+                    let rgb_data = [
+                        0,
+                        old_data[old_index],
+                        old_data[old_index],
+                        old_data[old_index],
+                    ];
+                    let rgb_data = i32::from_be_bytes(rgb_data);
+
+                    new_data.extend_from_slice(&rgb_data.to_ne_bytes());
+                }
+            }
+
+            Ok((new_stride, new_data))
+        }
         (o, n) => Err(format!(
             "Cannot convert between JPEG pixel format {:?} and Cairo pixel format {:?}",
             o, n
@@ -108,13 +131,7 @@ fn create_image_surface<R: Read + Seek>(image: &mut R) -> Result<ImageSurface, S
             .ok_or_else(|| "JPEG decode succeeded but could not get metadata".to_string())?;
 
         // Decide which Cairo pixel format is appropriate for the decoded JPEG pixel format
-        let cairo_format = match info.pixel_format {
-            PixelFormat::L8 => Format::A8,
-            PixelFormat::RGB24 => Format::Rgb24,
-            PixelFormat::CMYK32 => {
-                return Err("CMYK32 JPEGs are not currently supported".to_string())
-            }
-        };
+        let cairo_format = Format::Rgb24;
 
         // Convert from JPEG's pixel format to Cairo's
         // There's a bunch of nuance tucked away in this function, and not all
