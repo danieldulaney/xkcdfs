@@ -23,6 +23,7 @@ rusqlite = "0.20"
 # For image rendering
 cairo-rs = { version = "0.7.1", features = ["png"] }
 jpeg-decoder = { version = "0.1", default-features = false }
+unicode-linebreak = "0.1.0"
 
 # For logging
 log = "*"

@@ -207,7 +207,7 @@ impl XkcdClient {
                 comic,
                 mode
             );
-            let raw_image = self.request_raw_image(comicnum, timeout, mode)?;
+            let raw_image = self.request_raw_image(comic, timeout, mode)?;
 
             trace!("Rendering image fresh from raw image for {}", comic);
 
