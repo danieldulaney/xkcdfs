@@ -1,4 +1,8 @@
+#[macro_use]
+extern crate log;
+
 mod fs;
+mod image;
 mod requests;
 mod xkcd;
 
@@ -10,18 +14,33 @@ use std::env;
 use std::ffi::OsStr;
 
 fn main() {
+    env_logger::init();
+
     let client = XkcdClient::new(std::time::Duration::from_secs(1));
 
-    dbg!(client.request_latest_comic(None, Normal));
+    info!("Requesting latest comic (to get file count)");
+
+    let latest_comic = client.request_latest_comic(None, BustCache).unwrap();
+
+    info!("Most recent comic is {}", latest_comic);
 
     let fs = fs::XkcdFs::new(client);
 
-    let mountpoint = env::args_os().nth(1).unwrap();
+    let mountpoint = match env::args_os().nth(1) {
+        None => {
+            error!("No mountpoint (use a command line argument)");
+            return;
+        }
+        Some(s) => s,
+    };
 
     let options = ["-o", "ro", "-o", "fsname=xkcd"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
 
-    fuse::mount(fs, &mountpoint, &options).unwrap();
+    match fuse::mount(fs, &mountpoint, &options) {
+        Err(e) => error!("Mounting error: {}", e),
+        Ok(()) => info!("Exiting gracefully"),
+    }
 }

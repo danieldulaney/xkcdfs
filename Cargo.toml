@@ -5,10 +5,28 @@ authors = ["Daniel Dulaney <dan@dulaney.xyz>"]
 edition = "2018"
 
 [dependencies]
+# FUSE and some dependencies I need access to
 fuse = "0.3.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 libc = "*"
 time = "*"
+
+# For parsing API responses
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# For HTTP requests
 reqwest = "0.9.20"
+
+# For the SQLite cache
 rusqlite = "0.20"
+
+# For image rendering
+cairo-rs = { version = "0.7.1", features = ["png"] }
+jpeg-decoder = { version = "0.1", default-features = false }
+
+# For logging
+log = "*"
+env_logger = "0.7"
+
+[patch.crates-io]
+jpeg-decoder = { git = "https://github.com/danieldulaney/jpeg-decoder.git", branch = "pixel-format-sizes" }

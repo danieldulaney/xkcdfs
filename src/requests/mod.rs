@@ -6,30 +6,39 @@ mod database;
 
 static SQLITE_DB: &str = "/dev/shm/test.db";
 
+#[derive(Clone, Debug)]
 pub enum RequestMode {
     Normal,
     NoNetwork,
-    NoCache,
+    BustCache,
+    VeryFast,
 }
 
 impl RequestMode {
     pub fn network(&self) -> bool {
-        use RequestMode::*;
-
         match self {
-            Normal => true,
-            NoNetwork => false,
-            NoCache => true,
+            Self::Normal => true,
+            Self::NoNetwork => false,
+            Self::BustCache => true,
+            Self::VeryFast => false,
         }
     }
 
     pub fn cache(&self) -> bool {
-        use RequestMode::*;
-
         match self {
-            Normal => true,
-            NoNetwork => true,
-            NoCache => false,
+            Self::Normal => true,
+            Self::NoNetwork => true,
+            Self::BustCache => false,
+            Self::VeryFast => true,
+        }
+    }
+
+    pub fn render(&self) -> bool {
+        match self {
+            Self::Normal => true,
+            Self::NoNetwork => true,
+            Self::BustCache => true,
+            Self::VeryFast => false,
         }
     }
 }
@@ -67,17 +76,33 @@ impl XkcdClient {
         _timeout: Option<Duration>,
         mode: RequestMode,
     ) -> Option<Comic> {
+        debug!("Latest comic requested");
+
         if mode.cache() {
+            trace!("Trying the cache for the latest comic");
+
             if let Some(c) = database::get_latest_comic(&self.conn) {
                 return Some(c);
             }
+        } else {
+            trace!(
+                "Skipping the cache for the latest comic (mode was {:?})",
+                mode
+            );
         }
 
         if mode.network() {
+            trace!("Trying the network for the latest comic");
+
             if let Some(c) = api::get_comic(&self.client, None) {
                 database::insert_comic(&self.conn, &c).ok();
                 return Some(c);
             }
+        } else {
+            trace!(
+                "Skipping the network for the latest comic (mode was {:?})",
+                mode
+            );
         }
 
         None
@@ -89,42 +114,106 @@ impl XkcdClient {
         _timeout: Option<Duration>,
         mode: RequestMode,
     ) -> Option<Comic> {
+        debug!("Comic {} requested", num);
+
         if mode.cache() {
+            trace!("Trying the cache for comic {}", num);
+
             if let Some(c) = database::get_comic(&self.conn, num) {
                 return Some(c);
             }
+        } else {
+            trace!("Skipping the cache for comic {} (mode was {:?})", num, mode);
         }
 
         if mode.network() {
+            trace!("Trying the network for comic {}", num);
+
             if let Some(c) = api::get_comic(&self.client, Some(num)) {
                 database::insert_comic(&self.conn, &c).unwrap();
                 return Some(c);
+            }
+        } else {
+            trace!("Skipping the network for comic {} (mode was {:?})", num, mode);
+        }
+
+        None
+    }
+
+    pub fn request_raw_image(
+        &self,
+        num: u32,
+        timeout: Option<Duration>,
+        mode: RequestMode,
+    ) -> Option<Vec<u8>> {
+        debug!("Raw image {} requested", num);
+
+        if mode.cache() {
+            trace!("Trying the cache for raw image {}", num);
+
+            if let Ok(i) = database::get_raw_image(&self.conn, num) {
+                return Some(i);
+            }
+        } else {
+            trace!("Skipping the cache for raw image {} (mode was {:?})", num, mode);
+        }
+
+        if mode.network() {
+            trace!("Trying the network for raw image {}, fetching comic to get URL", num);
+
+            let comic = self.request_comic(num, timeout, mode)?;
+
+            trace!("Got comic data {} with URL {}", comic, comic.img_url);
+
+            if let Some(i) = api::get_image(&self.client, &comic) {
+                database::insert_raw_image(&self.conn, comic.num, &i).ok();
+                return Some(i);
+            } else {
+                warn!("Could not get raw image {} from URL {}", comic, comic.img_url);
             }
         }
 
         None
     }
 
-    pub fn request_image(
+    pub fn request_rendered_image(
         &self,
-        num: u32,
+        comic: &Comic,
         timeout: Option<Duration>,
         mode: RequestMode,
     ) -> Option<Vec<u8>> {
+        debug!("Rendered image {} requested", comic);
+
         if mode.cache() {
-            if let Ok(i) = database::get_image(&self.conn, num) {
-                return Some(i);
+            trace!("Trying the cache for rendered image {}", comic);
+
+            if let Ok(image) = database::get_rendered_image(&self.conn, comic.num) {
+                return Some(image);
             }
+        } else {
+            trace!("Skipping the cache for rendered image {}", comic);
         }
 
-        if mode.network() {
-            // Potentially make a network request to get the image URL
-            let comic = self.request_comic(num, timeout, mode)?;
+        if mode.render() {
+            trace!("Getting the rendered image for {} with mode {:?}", comic, mode);
+            let raw_image = self.request_raw_image(comic.num, timeout, mode)?;
 
-            if let Some(i) = api::get_image(&self.client, &comic) {
-                database::insert_image(&self.conn, comic.num, &i).ok();
-                return Some(i);
+            trace!("Rendering image fresh from raw image for {}", comic);
+
+            match crate::image::render(&comic, &mut std::io::Cursor::new(&raw_image)) {
+                Ok(image) => {
+                    trace!("Successfully rendered {}", comic);
+                    if let Err(e) = database::insert_rendered_image(&self.conn, comic.num, &image) {
+                        warn!("Failed to store rendered image for {} in the cache: {}", comic, e);
+                    }
+                    return Some(image)
+                },
+                Err(e) => {
+                    warn!("Error rendering {}: {}", comic, e);
+                }
             }
+        } else {
+            trace!("Skipping the render for rendered image {}", comic);
         }
 
         None

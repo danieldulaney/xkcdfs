@@ -38,3 +38,9 @@ impl Comic {
         .to_timespec()
     }
 }
+
+impl std::fmt::Display for Comic {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "#{} ({})", self.num, self.safe_title)
+    }
+}
