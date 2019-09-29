@@ -399,12 +399,12 @@ pub fn render<R: Read + Seek>(comic: &Comic, image: &mut R) -> Result<Vec<u8>, S
 
     cr.move_to(alt_start_x, alt_start_y);
 
-    for (_, line) in alt_lines {
+    for (extents, line) in alt_lines {
         cr.show_text(line);
 
         let (_, curr_y) = cr.get_current_point();
 
-        cr.move_to(alt_start_x, curr_y + ALT_LEADING)
+        cr.move_to(alt_start_x, curr_y + ALT_LEADING + extents.height)
     }
 
     // Create the final PNG
