@@ -34,7 +34,7 @@ fn main() {
         Some(s) => s,
     };
 
-    let options = ["-o", "ro", "-o", "fsname=xkcd"]
+    let options = ["-o", "fsname=xkcd"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
