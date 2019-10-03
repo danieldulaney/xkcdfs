@@ -1,7 +1,7 @@
 mod file;
 
-use fuse::{FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, Request};
-use libc::{EINVAL, EISDIR, ENOENT, ENOTDIR, EREMOTEIO};
+use fuse::{FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, ReplyWrite, Request};
+use libc::{EINVAL, EISDIR, ENOENT, ENOTDIR, EPERM, EREMOTEIO};
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use time::Timespec;
@@ -44,6 +44,22 @@ impl XkcdFs {
                 kind: file.filetype(),
                 perm: DEFAULT_PERM,
                 nlink: 2,
+                uid: request.uid(),
+                gid: request.gid(),
+                rdev: 0,
+                flags: 0,
+            }),
+            File::Refresh => Some(FileAttr {
+                ino: file.inode(),
+                size: 0,
+                blocks: 1,
+                atime: Timespec::new(0, 0),
+                mtime: Timespec::new(0, 0),
+                ctime: Timespec::new(0, 0),
+                crtime: Timespec::new(0, 0),
+                kind: file.filetype(),
+                perm: 0o666,
+                nlink: 1,
                 uid: request.uid(),
                 gid: request.gid(),
                 rdev: 0,
@@ -151,6 +167,10 @@ impl<'q> Filesystem for XkcdFs {
     ) {
         let file = match File::from_inode(ino) {
             Some(f @ File::Root) => f,
+            Some(File::Refresh) => {
+                reply.error(ENOTDIR);
+                return;
+            }
             Some(f @ File::MetaFolder(_)) => f,
             Some(File::Image(_)) => {
                 reply.error(ENOTDIR);
@@ -271,6 +291,10 @@ impl<'q> Filesystem for XkcdFs {
                     }
                 }
             }
+            Some(File::Refresh) => {
+                debug!("Refreshing comic");
+                reply.data(&[]);
+            }
             Some(f @ File::Root) => {
                 warn!("{:?} is a directory, returning EISDIR", f);
                 reply.error(EISDIR)
@@ -284,5 +308,57 @@ impl<'q> Filesystem for XkcdFs {
                 reply.error(ENOENT)
             }
         };
+    }
+
+    fn write(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        _offset: i64,
+        data: &[u8],
+        _flags: u32,
+        reply: ReplyWrite,
+    ) {
+        match File::from_inode(ino) {
+            Some(File::Refresh) => {
+                info!("Refreshing latest comic (via write)");
+
+                self.client.request_latest_comic(None, BustCache);
+
+                reply.written(data.len() as u32);
+            }
+            Some(_) => reply.error(EPERM),
+            None => reply.error(ENOENT),
+        }
+    }
+
+    fn setattr(
+        &mut self,
+        req: &Request,
+        ino: u64,
+        _mode: Option<u32>,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
+        _size: Option<u64>,
+        _atime: Option<Timespec>,
+        _mtime: Option<Timespec>,
+        _fh: Option<u64>,
+        _crtime: Option<Timespec>,
+        _chgtime: Option<Timespec>,
+        _bkuptime: Option<Timespec>,
+        _flags: Option<u32>,
+        reply: ReplyAttr,
+    ) {
+        match File::from_inode(ino) {
+            Some(File::Refresh) => {
+                info!("Refreshing latest comic (via setattr)");
+
+                self.client.request_latest_comic(None, BustCache);
+
+                self.getattr(req, ino, reply)
+            }
+            _ => self.getattr(req, ino, reply),
+        }
     }
 }
