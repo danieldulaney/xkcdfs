@@ -16,7 +16,7 @@ const BLOCK_SIZE: u64 = 512;
 const DEFAULT_SIZE: u64 = 4096;
 const DEFAULT_PERM: u16 = 0o444;
 
-const CREDITS_DATA: &str = "credit data here";
+const CREDITS_DATA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/credits.txt"));
 
 pub struct XkcdFs {
     client: crate::XkcdClient,
