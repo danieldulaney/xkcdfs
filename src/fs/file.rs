@@ -11,6 +11,7 @@ use std::ffi::OsStr;
 pub enum File {
     Root,
     Refresh,
+    Credits,
     Image(u32),
     MetaFolder(u32),
     AltText(u32),
@@ -28,6 +29,7 @@ impl File {
         match (upper_bytes, lower_bytes) {
             (0, 1) => Some(Self::Root),
             (0, 2) => Some(Self::Refresh),
+            (0, 3) => Some(Self::Credits),
             (num, 0) if num > 0 => Some(Self::Image(num)),
             (num, 1) if num > 0 => Some(Self::MetaFolder(num)),
             (num, 2) if num > 0 => Some(Self::AltText(num)),
@@ -49,6 +51,7 @@ impl File {
         match self {
             Self::Root => 1,
             Self::Refresh => 2,
+            Self::Credits => 3,
             Self::Image(i) => (*i as u64) << 32,
             Self::MetaFolder(i) => ((*i as u64) << 32) + 1,
             Self::AltText(i) => ((*i as u64) << 32) + 2,
@@ -60,6 +63,7 @@ impl File {
 
         match parent {
             File::Refresh => None,
+            File::Credits => None,
             File::Image(_) => None,
             File::AltText(_) => None,
             File::Root => {
@@ -74,6 +78,8 @@ impl File {
                     filename.parse().ok().map(Self::MetaFolder)
                 } else if filename == "refresh" {
                     Some(Self::Refresh)
+                } else if filename == "credits" {
+                    Some(Self::Credits)
                 } else {
                     None
                 }
@@ -92,6 +98,7 @@ impl File {
         match self {
             Self::Root => "".to_string(),
             Self::Refresh => "refresh".to_string(),
+            Self::Credits => "credits".to_string(),
             Self::Image(num) => format!("comic_{}.png", num),
             Self::MetaFolder(num) => format!("info_{}", num),
             Self::AltText(_) => "alt".to_string(),
@@ -102,6 +109,7 @@ impl File {
         match self {
             Self::Root => FileType::Directory,
             Self::Refresh => FileType::RegularFile,
+            Self::Credits => FileType::RegularFile,
             Self::Image(_) => FileType::RegularFile,
             Self::MetaFolder(_) => FileType::Directory,
             Self::AltText(_) => FileType::RegularFile,
@@ -118,38 +126,50 @@ impl File {
                     Self::Refresh.filetype(),
                     Self::Refresh.filename(),
                 )),
-                index if index <= (num_comics + 2) as u64 => {
-                    let file = File::Image((index - 2) as u32);
+                3 => Some((
+                    Self::Credits.inode(),
+                    Self::Credits.filetype(),
+                    Self::Credits.filename(),
+                )),
+                index if index <= (num_comics + 3) as u64 => {
+                    let file = File::Image((index - 3) as u32);
 
                     Some((file.inode(), file.filetype(), file.filename()))
                 }
-                index if index <= (2 * num_comics + 2) as u64 => {
-                    let file = File::MetaFolder((index - 2 - num_comics) as u32);
+                index if index <= (2 * num_comics + 3) as u64 => {
+                    let file = File::MetaFolder((index - 3 - num_comics) as u32);
 
                     Some((file.inode(), file.filetype(), file.filename()))
                 }
                 _ => None,
             },
             Self::Refresh => None,
+            Self::Credits => None,
             Self::Image(_) => None,
-            Self::MetaFolder(num) => match index {
-                0 => Some((
-                    File::MetaFolder(*num).inode(),
-                    File::MetaFolder(*num).filetype(),
-                    ".".to_string(),
-                )),
-                1 => Some((
-                    File::MetaFolder(*num).inode(),
-                    File::MetaFolder(*num).filetype(),
-                    "..".to_string(),
-                )),
-                2 => Some((
-                    File::AltText(*num).inode(),
-                    File::AltText(*num).filetype(),
-                    File::AltText(*num).filename(),
-                )),
-                _ => None,
-            },
+            Self::MetaFolder(num) => {
+                if *num as u64 > num_comics {
+                    return None;
+                }
+
+                match index {
+                    0 => Some((
+                        File::MetaFolder(*num).inode(),
+                        File::MetaFolder(*num).filetype(),
+                        ".".to_string(),
+                    )),
+                    1 => Some((
+                        File::MetaFolder(*num).inode(),
+                        File::MetaFolder(*num).filetype(),
+                        "..".to_string(),
+                    )),
+                    2 => Some((
+                        File::AltText(*num).inode(),
+                        File::AltText(*num).filetype(),
+                        File::AltText(*num).filename(),
+                    )),
+                    _ => None,
+                }
+            }
             Self::AltText(_) => None,
         }
     }
@@ -165,7 +185,8 @@ mod test {
         assert_eq!(File::from_inode(0), None);
         assert_eq!(File::from_inode(1), Some(File::Root));
         assert_eq!(File::from_inode(2), Some(File::Refresh));
-        assert_eq!(File::from_inode(3), None);
+        assert_eq!(File::from_inode(3), Some(File::Credits));
+        assert_eq!(File::from_inode(4), None);
 
         // Image 1
         assert_eq!(File::from_inode(0x00000001_00000000), Some(File::Image(1)));
@@ -245,6 +266,10 @@ mod test {
             File::from_filename(&File::Root, "refresh")
         );
         assert_eq!(
+            Some(File::Credits),
+            File::from_filename(&File::Root, "credits")
+        );
+        assert_eq!(
             Some(File::Image(1)),
             File::from_filename(&File::Root, "comic_1.png")
         );
@@ -309,12 +334,13 @@ mod test {
             File::Root.child_by_index(1, 1)
         );
         assert_eq!(exp_child(File::Refresh), File::Root.child_by_index(2, 1));
-        assert_eq!(exp_child(File::Image(1)), File::Root.child_by_index(3, 1));
+        assert_eq!(exp_child(File::Credits), File::Root.child_by_index(3, 1));
+        assert_eq!(exp_child(File::Image(1)), File::Root.child_by_index(4, 1));
         assert_eq!(
             exp_child(File::MetaFolder(1)),
-            File::Root.child_by_index(4, 1)
+            File::Root.child_by_index(5, 1)
         );
-        assert_eq!(None, File::Root.child_by_index(5, 1));
+        assert_eq!(None, File::Root.child_by_index(6, 1));
     }
 
     #[test]
@@ -331,22 +357,26 @@ mod test {
             exp_child(File::Refresh),
             File::Root.child_by_index(2, 10_000)
         );
+        assert_eq!(
+            exp_child(File::Credits),
+            File::Root.child_by_index(3, 10_000)
+        );
 
-        for i in 3..10_003 {
+        for i in 4..10_004 {
             assert_eq!(
-                exp_child(File::Image(i - 2)),
+                exp_child(File::Image(i - 3)),
                 File::Root.child_by_index(i as u64, 10_000)
             );
         }
 
-        for i in 10_003..20_003 {
+        for i in 10_004..20_004 {
             assert_eq!(
-                exp_child(File::MetaFolder(i - 10_002)),
+                exp_child(File::MetaFolder(i - 10_003)),
                 File::Root.child_by_index(i as u64, 10_000)
             );
         }
 
-        assert_eq!(None, File::Root.child_by_index(20_003, 10_000));
+        assert_eq!(None, File::Root.child_by_index(20_004, 10_000));
     }
 
     #[test]

@@ -1,0 +1,12 @@
+xkcd is created by Randall Munroe.
+
+The original comics can be found at [xkcd.com]. The comics are licensed under
+a Creative Commons Attribution-NonCommercial 2.5 License, as described at
+[https://xkcd.com/license.html].
+
+xkcdfs was initially created by Daniel Dulaney, with contributions from the
+people listed at [https://github.com/danieldulaney/xkcdfs/graphs/contributors].
+
+Source code can be found at [https://github.com/danieldulaney/xkcdfs]. It is
+licensed under the MIT license, as described at
+[https://github.com/danieldulaney/xkcdfs/blob/master/LICENSE].
