@@ -118,13 +118,13 @@ impl File {
                     Self::Refresh.filetype(),
                     Self::Refresh.filename(),
                 )),
-                index if index <= (num_comics + 3) as u64 => {
-                    let file = File::Image((index - 3) as u32);
+                index if index <= (num_comics + 2) as u64 => {
+                    let file = File::Image((index - 2) as u32);
 
                     Some((file.inode(), file.filetype(), file.filename()))
                 }
-                index if index <= (2 * num_comics + 3) as u64 => {
-                    let file = File::MetaFolder((index - 3 - num_comics) as u32);
+                index if index <= (2 * num_comics + 2) as u64 => {
+                    let file = File::MetaFolder((index - 2 - num_comics) as u32);
 
                     Some((file.inode(), file.filetype(), file.filename()))
                 }
@@ -292,5 +292,94 @@ mod test {
 
         assert_eq!(None, File::from_filename(&File::AltText(1), ""));
         assert_eq!(None, File::from_filename(&File::AltText(123456), ""));
+    }
+
+    fn exp_child(f: File) -> Option<(u64, FileType, String)> {
+        Some((f.inode(), f.filetype(), f.filename()))
+    }
+
+    #[test]
+    fn root_child_by_index_1_comic() {
+        assert_eq!(
+            Some((File::Root.inode(), File::Root.filetype(), ".".to_string())),
+            File::Root.child_by_index(0, 1)
+        );
+        assert_eq!(
+            Some((File::Root.inode(), File::Root.filetype(), "..".to_string())),
+            File::Root.child_by_index(1, 1)
+        );
+        assert_eq!(exp_child(File::Refresh), File::Root.child_by_index(2, 1));
+        assert_eq!(exp_child(File::Image(1)), File::Root.child_by_index(3, 1));
+        assert_eq!(
+            exp_child(File::MetaFolder(1)),
+            File::Root.child_by_index(4, 1)
+        );
+        assert_eq!(None, File::Root.child_by_index(5, 1));
+    }
+
+    #[test]
+    fn root_child_by_index_10000_comics() {
+        assert_eq!(
+            Some((File::Root.inode(), File::Root.filetype(), ".".to_string())),
+            File::Root.child_by_index(0, 10_000)
+        );
+        assert_eq!(
+            Some((File::Root.inode(), File::Root.filetype(), "..".to_string())),
+            File::Root.child_by_index(1, 10_000)
+        );
+        assert_eq!(
+            exp_child(File::Refresh),
+            File::Root.child_by_index(2, 10_000)
+        );
+
+        for i in 3..10_003 {
+            assert_eq!(
+                exp_child(File::Image(i - 2)),
+                File::Root.child_by_index(i as u64, 10_000)
+            );
+        }
+
+        for i in 10_003..20_003 {
+            assert_eq!(
+                exp_child(File::MetaFolder(i - 10_002)),
+                File::Root.child_by_index(i as u64, 10_000)
+            );
+        }
+
+        assert_eq!(None, File::Root.child_by_index(20_003, 10_000));
+    }
+
+    #[test]
+    fn metafile_child_by_index() {
+        assert_eq!(
+            Some((
+                File::MetaFolder(1).inode(),
+                File::MetaFolder(1).filetype(),
+                ".".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(0, 1)
+        );
+
+        assert_eq!(
+            Some((
+                File::MetaFolder(1).inode(),
+                File::MetaFolder(1).filetype(),
+                "..".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(1, 1)
+        );
+
+        assert_eq!(
+            Some((
+                File::AltText(1).inode(),
+                File::AltText(1).filetype(),
+                "alt".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(2, 1)
+        );
+
+        assert_eq!(None, File::MetaFolder(1).child_by_index(3, 1));
+
+        assert_eq!(None, File::MetaFolder(2).child_by_index(0, 1));
     }
 }
