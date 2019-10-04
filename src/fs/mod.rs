@@ -16,6 +16,8 @@ const BLOCK_SIZE: u64 = 512;
 const DEFAULT_SIZE: u64 = 4096;
 const DEFAULT_PERM: u16 = 0o444;
 
+const CREDITS_DATA: &str = "credit data here";
+
 pub struct XkcdFs {
     client: crate::XkcdClient,
 }
@@ -32,6 +34,9 @@ impl XkcdFs {
     fn file_attr(&self, request: &Request, file: File) -> Option<FileAttr> {
         info!("Getting attributes for {:?}", file);
 
+        let rdev = 0;
+        let flags = 0;
+
         match file {
             File::Root => Some(FileAttr {
                 ino: file.inode(),
@@ -46,8 +51,8 @@ impl XkcdFs {
                 nlink: 2,
                 uid: request.uid(),
                 gid: request.gid(),
-                rdev: 0,
-                flags: 0,
+                rdev,
+                flags,
             }),
             File::Refresh => Some(FileAttr {
                 ino: file.inode(),
@@ -62,8 +67,24 @@ impl XkcdFs {
                 nlink: 1,
                 uid: request.uid(),
                 gid: request.gid(),
-                rdev: 0,
-                flags: 0,
+                rdev,
+                flags,
+            }),
+            File::Credits => Some(FileAttr {
+                ino: file.inode(),
+                size: CREDITS_DATA.len() as u64,
+                blocks: Self::blocks(CREDITS_DATA.len() as u64),
+                atime: Timespec::new(0, 0),
+                mtime: Timespec::new(0, 0),
+                ctime: Timespec::new(0, 0),
+                crtime: Timespec::new(0, 0),
+                kind: file.filetype(),
+                perm: DEFAULT_PERM,
+                nlink: 1,
+                uid: request.uid(),
+                gid: request.gid(),
+                rdev,
+                flags,
             }),
             File::Image(num) => {
                 let comic: Option<Comic> = self.client.request_comic(num, None, VeryFast);
@@ -90,8 +111,8 @@ impl XkcdFs {
                     nlink: 1,
                     uid: request.uid(),
                     gid: request.gid(),
-                    rdev: 0,
-                    flags: 0,
+                    rdev,
+                    flags,
                 })
             }
             File::MetaFolder(num) => {
@@ -112,8 +133,8 @@ impl XkcdFs {
                     nlink: 2,
                     uid: request.uid(),
                     gid: request.gid(),
-                    rdev: 0,
-                    flags: 0,
+                    rdev,
+                    flags,
                 })
             }
             File::AltText(num) => {
@@ -138,8 +159,8 @@ impl XkcdFs {
                     nlink: 2,
                     uid: request.uid(),
                     gid: request.gid(),
-                    rdev: 0,
-                    flags: 0,
+                    rdev,
+                    flags,
                 })
             }
         }
@@ -168,6 +189,10 @@ impl<'q> Filesystem for XkcdFs {
         let file = match File::from_inode(ino) {
             Some(f @ File::Root) => f,
             Some(File::Refresh) => {
+                reply.error(ENOTDIR);
+                return;
+            }
+            Some(File::Credits) => {
                 reply.error(ENOTDIR);
                 return;
             }
@@ -289,6 +314,16 @@ impl<'q> Filesystem for XkcdFs {
 
                         reply.data(&bytes[offset as usize..range_end]);
                     }
+                }
+            }
+            Some(File::Credits) => {
+                let bytes = CREDITS_DATA.as_bytes();
+                let range_end = std::cmp::min(range_end.try_into().unwrap(), bytes.len());
+
+                if offset >= bytes.len() as i64 {
+                    reply.error(EINVAL);
+                } else {
+                    reply.data(&bytes[offset as usize..range_end]);
                 }
             }
             Some(File::Refresh) => {
