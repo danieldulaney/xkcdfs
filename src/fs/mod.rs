@@ -1,6 +1,8 @@
 mod file;
 
-use fuse::{FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, ReplyWrite, Request};
+use fuse::{
+    FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, ReplyOpen, ReplyWrite, Request,
+};
 use libc::{EINVAL, EISDIR, ENOENT, ENOTDIR, EPERM, EREMOTEIO};
 use std::convert::TryInto;
 use std::ffi::OsStr;
@@ -21,15 +23,24 @@ const CREDITS_DATA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/cr
 
 pub struct XkcdFs {
     client: crate::XkcdClient,
+    next_fh: u64,
 }
 
 impl XkcdFs {
     pub fn new(client: crate::XkcdClient) -> Self {
-        Self { client }
+        Self { client, next_fh: 1 }
     }
 
     const fn blocks(size: u64) -> u64 {
         (size + BLOCK_SIZE - 1) / BLOCK_SIZE
+    }
+
+    fn gen_fh(&mut self) -> u64 {
+        let fh = self.next_fh;
+
+        self.next_fh = self.next_fh.wrapping_add(1);
+
+        fh
     }
 
     fn file_attr(&self, request: &Request, file: File) -> Option<FileAttr> {
@@ -344,6 +355,23 @@ impl<'q> Filesystem for XkcdFs {
                 reply.error(ENOENT)
             }
         };
+    }
+
+    fn open(&mut self, _req: &Request, ino: u64, _flags: u32, reply: ReplyOpen) {
+        use File::*;
+        const DEFAULT_FLAGS: u32 = 0;
+
+        match File::from_inode(ino) {
+            Some(Root) | Some(MetaFolder(_)) => reply.error(EISDIR),
+            Some(Refresh) | Some(Credits) | Some(AltText(_)) => {
+                reply.opened(self.gen_fh(), DEFAULT_FLAGS)
+            }
+            Some(Image(num)) => match self.client.request_comic(num, None, Normal) {
+                Some(_) => reply.opened(self.gen_fh(), DEFAULT_FLAGS),
+                None => reply.error(EREMOTEIO),
+            },
+            None => reply.error(ENOENT),
+        }
     }
 
     fn write(
