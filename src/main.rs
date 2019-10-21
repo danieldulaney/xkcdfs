@@ -20,7 +20,14 @@ fn main() {
 
     info!("Requesting latest comic (to get file count)");
 
-    let latest_comic = client.request_latest_comic(None, BustCache).unwrap();
+    let latest_comic = match client.request_latest_comic(None, BustCache) {
+        Some(c) => c,
+        None => {
+            error!("Could not fetch latest comic from https://xkcd.com.");
+            error!("Are you connected to the Internet?");
+            return;
+        }
+    };
 
     info!("Most recent comic is {}", latest_comic);
 

@@ -99,8 +99,8 @@ impl File {
             Self::Root => "".to_string(),
             Self::Refresh => "refresh".to_string(),
             Self::Credits => "credits".to_string(),
-            Self::Image(num) => format!("comic_{}.png", num),
-            Self::MetaFolder(num) => format!("info_{}", num),
+            Self::Image(num) => format!("comic_{:04}.png", num),
+            Self::MetaFolder(num) => format!("info_{:04}", num),
             Self::AltText(_) => "alt".to_string(),
         }
     }
@@ -248,10 +248,10 @@ mod test {
 
         assert_eq!(File::Refresh.filename(), "refresh");
 
-        assert_eq!(File::Image(1).filename(), "comic_1.png");
+        assert_eq!(File::Image(1).filename(), "comic_0001.png");
         assert_eq!(File::Image(123456).filename(), "comic_123456.png");
 
-        assert_eq!(File::MetaFolder(1).filename(), "info_1");
+        assert_eq!(File::MetaFolder(1).filename(), "info_0001");
         assert_eq!(File::MetaFolder(123456).filename(), "info_123456");
 
         assert_eq!(File::AltText(1).filename(), "alt");

@@ -1,6 +1,8 @@
 mod file;
 
-use fuse::{FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, ReplyWrite, Request};
+use fuse::{
+    FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, ReplyOpen, ReplyWrite, Request,
+};
 use libc::{EINVAL, EISDIR, ENOENT, ENOTDIR, EPERM, EREMOTEIO};
 use std::convert::TryInto;
 use std::ffi::OsStr;
@@ -13,6 +15,7 @@ const TTL: Timespec = Timespec { sec: 1, nsec: 0 };
 const EPOCH: Timespec = Timespec { sec: 0, nsec: 0 };
 const GEN: u64 = 0;
 const BLOCK_SIZE: u64 = 512;
+const DIR_SIZE: u64 = 4096;
 const DEFAULT_SIZE: u64 = 4096;
 const DEFAULT_PERM: u16 = 0o444;
 
@@ -20,15 +23,24 @@ const CREDITS_DATA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/cr
 
 pub struct XkcdFs {
     client: crate::XkcdClient,
+    next_fh: u64,
 }
 
 impl XkcdFs {
     pub fn new(client: crate::XkcdClient) -> Self {
-        Self { client }
+        Self { client, next_fh: 1 }
     }
 
     const fn blocks(size: u64) -> u64 {
         (size + BLOCK_SIZE - 1) / BLOCK_SIZE
+    }
+
+    fn gen_fh(&mut self) -> u64 {
+        let fh = self.next_fh;
+
+        self.next_fh = self.next_fh.wrapping_add(1);
+
+        fh
     }
 
     fn file_attr(&self, request: &Request, file: File) -> Option<FileAttr> {
@@ -40,8 +52,8 @@ impl XkcdFs {
         match file {
             File::Root => Some(FileAttr {
                 ino: file.inode(),
-                size: DEFAULT_SIZE,
-                blocks: Self::blocks(DEFAULT_SIZE),
+                size: DIR_SIZE,
+                blocks: Self::blocks(DIR_SIZE),
                 atime: Timespec::new(0, 0),
                 mtime: Timespec::new(0, 0),
                 ctime: Timespec::new(0, 0),
@@ -96,7 +108,7 @@ impl XkcdFs {
 
                 // Default to std::i64::MAX because some programs interpret
                 // file sizes as *signed* integers and don't like values of -1
-                let size = image.map(|i| i.len() as u64).unwrap_or(4096);
+                let size = image.map(|i| i.len() as u64).unwrap_or(DEFAULT_SIZE);
 
                 Some(FileAttr {
                     ino: file.inode(),
@@ -122,8 +134,8 @@ impl XkcdFs {
 
                 Some(FileAttr {
                     ino: file.inode(),
-                    size: DEFAULT_SIZE,
-                    blocks: Self::blocks(DEFAULT_SIZE),
+                    size: DIR_SIZE,
+                    blocks: Self::blocks(DIR_SIZE),
                     atime: time,
                     mtime: time,
                     ctime: time,
@@ -343,6 +355,23 @@ impl<'q> Filesystem for XkcdFs {
                 reply.error(ENOENT)
             }
         };
+    }
+
+    fn open(&mut self, _req: &Request, ino: u64, _flags: u32, reply: ReplyOpen) {
+        use File::*;
+        const DEFAULT_FLAGS: u32 = 0;
+
+        match File::from_inode(ino) {
+            Some(Root) | Some(MetaFolder(_)) => reply.error(EISDIR),
+            Some(Refresh) | Some(Credits) | Some(AltText(_)) => {
+                reply.opened(self.gen_fh(), DEFAULT_FLAGS)
+            }
+            Some(Image(num)) => match self.client.request_comic(num, None, Normal) {
+                Some(_) => reply.opened(self.gen_fh(), DEFAULT_FLAGS),
+                None => reply.error(EREMOTEIO),
+            },
+            None => reply.error(ENOENT),
+        }
     }
 
     fn write(

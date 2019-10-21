@@ -155,7 +155,7 @@ fn create_image_surface<R: Read + Seek>(image: &mut R) -> Result<ImageSurface, S
         .map_err(|e| e.to_string());
     }
 
-    panic!("Could not decode the image as either a PNG or a JPEG");
+    Err("Could not decode the image as either a PNG or a JPEG".to_string())
 }
 
 pub fn break_text<'t>(
@@ -265,7 +265,7 @@ pub fn text_block_extents<'e, I: IntoIterator<Item = &'e TextExtents>>(
     line_spacing: f64,
 ) -> TextExtents {
     let mut iter = iter.into_iter();
-    let first_extents = iter.next().unwrap().clone();
+    let first_extents = iter.next().expect("Could not get first line").clone();
 
     iter.fold(first_extents, |mut acc, new| {
         acc.width = acc.width.max(new.width);
