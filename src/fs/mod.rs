@@ -13,6 +13,7 @@ const TTL: Timespec = Timespec { sec: 1, nsec: 0 };
 const EPOCH: Timespec = Timespec { sec: 0, nsec: 0 };
 const GEN: u64 = 0;
 const BLOCK_SIZE: u64 = 512;
+const DIR_SIZE: u64 = 4096;
 const DEFAULT_SIZE: u64 = 4096;
 const DEFAULT_PERM: u16 = 0o444;
 
@@ -40,8 +41,8 @@ impl XkcdFs {
         match file {
             File::Root => Some(FileAttr {
                 ino: file.inode(),
-                size: DEFAULT_SIZE,
-                blocks: Self::blocks(DEFAULT_SIZE),
+                size: DIR_SIZE,
+                blocks: Self::blocks(DIR_SIZE),
                 atime: Timespec::new(0, 0),
                 mtime: Timespec::new(0, 0),
                 ctime: Timespec::new(0, 0),
@@ -96,7 +97,7 @@ impl XkcdFs {
 
                 // Default to std::i64::MAX because some programs interpret
                 // file sizes as *signed* integers and don't like values of -1
-                let size = image.map(|i| i.len() as u64).unwrap_or(4096);
+                let size = image.map(|i| i.len() as u64).unwrap_or(DEFAULT_SIZE);
 
                 Some(FileAttr {
                     ino: file.inode(),
@@ -122,8 +123,8 @@ impl XkcdFs {
 
                 Some(FileAttr {
                     ino: file.inode(),
-                    size: DEFAULT_SIZE,
-                    blocks: Self::blocks(DEFAULT_SIZE),
+                    size: DIR_SIZE,
+                    blocks: Self::blocks(DIR_SIZE),
                     atime: time,
                     mtime: time,
                     ctime: time,
