@@ -5,8 +5,7 @@ use std::ffi::OsStr;
 ///
 /// inodes are 64 bits, but are treated as two separate 32-bit fields. The
 /// first field is the comic number -- it starts at 1 and goes up. The second
-/// field is the type of file within each comic. Right now there's just one:
-/// the image file itself.
+/// field is the type of file within each comic.
 #[derive(Debug, PartialEq)]
 pub enum File {
     Root,
@@ -15,6 +14,10 @@ pub enum File {
     Image(u32),
     MetaFolder(u32),
     AltText(u32),
+    Title(u32),
+    Transcript(u32),
+    Date(u32),
+    RawImage(u32),
 }
 
 impl File {
@@ -30,9 +33,14 @@ impl File {
             (0, 1) => Some(Self::Root),
             (0, 2) => Some(Self::Refresh),
             (0, 3) => Some(Self::Credits),
-            (num, 0) if num > 0 => Some(Self::Image(num)),
-            (num, 1) if num > 0 => Some(Self::MetaFolder(num)),
-            (num, 2) if num > 0 => Some(Self::AltText(num)),
+            (0, _) => None,
+            (num, 0) => Some(Self::Image(num)),
+            (num, 1) => Some(Self::MetaFolder(num)),
+            (num, 2) => Some(Self::AltText(num)),
+            (num, 3) => Some(Self::Title(num)),
+            (num, 4) => Some(Self::Transcript(num)),
+            (num, 5) => Some(Self::Date(num)),
+            (num, 6) => Some(Self::RawImage(num)),
             _ => None,
         }
     }
@@ -42,19 +50,33 @@ impl File {
     /// Every file has an inode. In the list below, `n` is any non-zero integer.
     ///
     /// | inode Upper Half | inode Lower Half | Meaning |
-    /// |--|--|--|
-    /// | 0 | 0 | Root folder |
+    /// |-----|---|--|
+    /// |  0  | 1 | Root folder |
+    /// |  0  | 2 | Refresh file |
+    /// |  0  | 3 | Credits file |
     /// | `n` | 0 | Image file `n` |
     /// | `n` | 1 | Metadata folder for comic `n` |
     /// | `n` | 2 | Alt-text file for comic `n` |
+    /// | `n` | 3 | Title file for comic `n` |
+    /// | `n` | 4 | Transcription file for comic `n` |
+    /// | `n` | 5 | Date file for comic `n` |
+    /// | `n` | 6 | Raw image file for comic `n` |
     pub fn inode(&self) -> u64 {
+        fn from_halves(high: u32, low: u32) -> u64 {
+            ((high as u64) << 32) + low as u64
+        }
+
         match self {
             Self::Root => 1,
             Self::Refresh => 2,
             Self::Credits => 3,
-            Self::Image(i) => (*i as u64) << 32,
-            Self::MetaFolder(i) => ((*i as u64) << 32) + 1,
-            Self::AltText(i) => ((*i as u64) << 32) + 2,
+            Self::Image(i) => from_halves(*i, 0),
+            Self::MetaFolder(i) => from_halves(*i, 1),
+            Self::AltText(i) => from_halves(*i, 2),
+            Self::Title(i) => from_halves(*i, 3),
+            Self::Transcript(i) => from_halves(*i, 4),
+            Self::Date(i) => from_halves(*i, 5),
+            Self::RawImage(i) => from_halves(*i, 6),
         }
     }
 
@@ -66,6 +88,10 @@ impl File {
             File::Credits => None,
             File::Image(_) => None,
             File::AltText(_) => None,
+            File::Title(_) => None,
+            File::Transcript(_) => None,
+            File::Date(_) => None,
+            File::RawImage(_) => None,
             File::Root => {
                 if filename.starts_with("comic_") && filename.ends_with(".png") {
                     let filename = filename.split_at("comic_".len()).1;
@@ -84,24 +110,29 @@ impl File {
                     None
                 }
             }
-            File::MetaFolder(num) => {
-                if filename == "alt" {
-                    Some(Self::AltText(*num))
-                } else {
-                    None
-                }
-            }
+            File::MetaFolder(num) => match filename {
+                "alt" => Some(Self::AltText(*num)),
+                "title" => Some(Self::Title(*num)),
+                "transcript" => Some(Self::Transcript(*num)),
+                "date" => Some(Self::Date(*num)),
+                "raw_image" => Some(Self::RawImage(*num)),
+                _ => None,
+            },
         }
     }
 
     pub fn filename(&self) -> String {
         match self {
-            Self::Root => "".to_string(),
-            Self::Refresh => "refresh".to_string(),
-            Self::Credits => "credits".to_string(),
+            Self::Root => String::new(),
+            Self::Refresh => String::from("refresh"),
+            Self::Credits => String::from("credits"),
             Self::Image(num) => format!("comic_{:04}.png", num),
             Self::MetaFolder(num) => format!("info_{:04}", num),
-            Self::AltText(_) => "alt".to_string(),
+            Self::AltText(_) => String::from("alt"),
+            Self::Title(_) => String::from("title"),
+            Self::Transcript(_) => String::from("transcript"),
+            Self::Date(_) => String::from("date"),
+            Self::RawImage(_) => String::from("raw_image"),
         }
     }
 
@@ -113,6 +144,10 @@ impl File {
             Self::Image(_) => FileType::RegularFile,
             Self::MetaFolder(_) => FileType::Directory,
             Self::AltText(_) => FileType::RegularFile,
+            Self::Title(_) => FileType::RegularFile,
+            Self::Transcript(_) => FileType::RegularFile,
+            Self::Date(_) => FileType::RegularFile,
+            Self::RawImage(_) => FileType::RegularFile,
         }
     }
 
@@ -157,21 +192,26 @@ impl File {
                         File::MetaFolder(*num).filetype(),
                         ".".to_string(),
                     )),
-                    1 => Some((
-                        File::MetaFolder(*num).inode(),
-                        File::MetaFolder(*num).filetype(),
-                        "..".to_string(),
-                    )),
-                    2 => Some((
-                        File::AltText(*num).inode(),
-                        File::AltText(*num).filetype(),
-                        File::AltText(*num).filename(),
-                    )),
+                    1 => Some((File::Root.inode(), File::Root.filetype(), "..".to_string())),
+                    2 => File::AltText(*num).triple(),
+                    3 => File::Title(*num).triple(),
+                    4 => File::Transcript(*num).triple(),
+                    5 => File::Date(*num).triple(),
+                    6 => File::RawImage(*num).triple(),
                     _ => None,
                 }
             }
             Self::AltText(_) => None,
+            Self::Title(_) => None,
+            Self::Transcript(_) => None,
+            Self::Date(_) => None,
+            Self::RawImage(_) => None,
         }
+    }
+
+    /// Used to implement child_by_index
+    fn triple(&self) -> Option<(u64, FileType, String)> {
+        Some((self.inode(), self.filetype(), self.filename()))
     }
 }
 
@@ -198,7 +238,17 @@ mod test {
             File::from_inode(0x00000001_00000002),
             Some(File::AltText(1))
         );
-        assert_eq!(File::from_inode(0x00000001_00000003), None);
+        assert_eq!(File::from_inode(0x00000001_00000003), Some(File::Title(1)));
+        assert_eq!(
+            File::from_inode(0x00000001_00000004),
+            Some(File::Transcript(1))
+        );
+        assert_eq!(File::from_inode(0x00000001_00000005), Some(File::Date(1)));
+        assert_eq!(
+            File::from_inode(0x00000001_00000006),
+            Some(File::RawImage(1))
+        );
+        assert_eq!(File::from_inode(0x00000001_00000007), None);
 
         // Image 0xFFFFFFFF
         assert_eq!(
@@ -213,14 +263,30 @@ mod test {
             File::from_inode(0xFFFFFFFF_00000002),
             Some(File::AltText(0xFFFFFFFF))
         );
-        assert_eq!(File::from_inode(0xFFFFFFFF_00000003), None);
+        assert_eq!(
+            File::from_inode(0xFFFFFFFF_00000003),
+            Some(File::Title(0xFFFFFFFF))
+        );
+        assert_eq!(
+            File::from_inode(0xFFFFFFFF_00000004),
+            Some(File::Transcript(0xFFFFFFFF))
+        );
+        assert_eq!(
+            File::from_inode(0xFFFFFFFF_00000005),
+            Some(File::Date(0xFFFFFFFF))
+        );
+        assert_eq!(
+            File::from_inode(0xFFFFFFFF_00000006),
+            Some(File::RawImage(0xFFFFFFFF))
+        );
+        assert_eq!(File::from_inode(0xFFFFFFFF_00000007), None);
     }
 
     #[test]
     fn file_inode_both_ways() {
         let mut interesting_numbers: Vec<u32> = Vec::new();
 
-        interesting_numbers.extend(0..256);
+        interesting_numbers.extend(0..0x2FF);
         interesting_numbers.extend(0xFFFFFFF0..=0xFFFFFFFF);
 
         for lower_half in interesting_numbers.iter() {
@@ -260,7 +326,7 @@ mod test {
 
     #[test]
     fn file_from_name() {
-        // Parent is root
+        // Successes: Parent is root
         assert_eq!(
             Some(File::Refresh),
             File::from_filename(&File::Root, "refresh")
@@ -277,7 +343,6 @@ mod test {
             Some(File::Image(123456)),
             File::from_filename(&File::Root, "comic_123456.png")
         );
-
         assert_eq!(
             Some(File::MetaFolder(1)),
             File::from_filename(&File::Root, "info_1")
@@ -287,11 +352,17 @@ mod test {
             File::from_filename(&File::Root, "info_123456")
         );
 
+        // Failures: Parent is root
         assert_eq!(None, File::from_filename(&File::Root, "foobar.png"));
         assert_eq!(None, File::from_filename(&File::Root, "comic_asdf.png"));
         assert_eq!(None, File::from_filename(&File::Root, "info_baz"));
+        assert_eq!(None, File::from_filename(&File::Root, "alt"));
+        assert_eq!(None, File::from_filename(&File::Root, "title"));
+        assert_eq!(None, File::from_filename(&File::Root, "transcript"));
+        assert_eq!(None, File::from_filename(&File::Root, "date"));
+        assert_eq!(None, File::from_filename(&File::Root, "raw_image"));
 
-        // Parent is metafolder
+        // Successes: Parent is metafolder
         assert_eq!(
             Some(File::AltText(1)),
             File::from_filename(&File::MetaFolder(1), "alt")
@@ -300,23 +371,65 @@ mod test {
             Some(File::AltText(123456)),
             File::from_filename(&File::MetaFolder(123456), "alt")
         );
+        assert_eq!(
+            Some(File::Title(1)),
+            File::from_filename(&File::MetaFolder(1), "title")
+        );
+        assert_eq!(
+            Some(File::Title(123456)),
+            File::from_filename(&File::MetaFolder(123456), "title")
+        );
+        assert_eq!(
+            Some(File::Transcript(1)),
+            File::from_filename(&File::MetaFolder(1), "transcript")
+        );
+        assert_eq!(
+            Some(File::Transcript(123456)),
+            File::from_filename(&File::MetaFolder(123456), "transcript")
+        );
+        assert_eq!(
+            Some(File::Date(1)),
+            File::from_filename(&File::MetaFolder(1), "date")
+        );
+        assert_eq!(
+            Some(File::Date(123456)),
+            File::from_filename(&File::MetaFolder(123456), "date")
+        );
+        assert_eq!(
+            Some(File::RawImage(1)),
+            File::from_filename(&File::MetaFolder(1), "raw_image")
+        );
+        assert_eq!(
+            Some(File::RawImage(123456)),
+            File::from_filename(&File::MetaFolder(123456), "raw_image")
+        );
 
+        // Failures: Parent is a metafolder but we request a root file
         assert_eq!(
             None,
             File::from_filename(&File::MetaFolder(1), "comic_1.png")
         );
-        assert_eq!(
-            None,
-            File::from_filename(&File::MetaFolder(1), "transcript")
-        );
+        assert_eq!(None, File::from_filename(&File::MetaFolder(1), "info_1"));
         assert_eq!(None, File::from_filename(&File::MetaFolder(1), "foobar"));
 
-        // Parent should have no files inside
+        // Failures: Parent is a regular file
         assert_eq!(None, File::from_filename(&File::Image(1), ""));
         assert_eq!(None, File::from_filename(&File::Image(123456), ""));
 
         assert_eq!(None, File::from_filename(&File::AltText(1), ""));
         assert_eq!(None, File::from_filename(&File::AltText(123456), ""));
+
+        assert_eq!(None, File::from_filename(&File::Title(1), ""));
+        assert_eq!(None, File::from_filename(&File::Title(123456), ""));
+
+        assert_eq!(None, File::from_filename(&File::Transcript(1), ""));
+        assert_eq!(None, File::from_filename(&File::Transcript(123456), ""));
+
+        assert_eq!(None, File::from_filename(&File::Date(1), ""));
+        assert_eq!(None, File::from_filename(&File::Date(123456), ""));
+
+        assert_eq!(None, File::from_filename(&File::RawImage(1), ""));
+        assert_eq!(None, File::from_filename(&File::RawImage(123456), ""));
     }
 
     fn exp_child(f: File) -> Option<(u64, FileType, String)> {
@@ -392,7 +505,7 @@ mod test {
 
         assert_eq!(
             Some((
-                File::MetaFolder(1).inode(),
+                File::Root.inode(),
                 File::MetaFolder(1).filetype(),
                 "..".to_string(),
             )),
@@ -408,7 +521,43 @@ mod test {
             File::MetaFolder(1).child_by_index(2, 1)
         );
 
-        assert_eq!(None, File::MetaFolder(1).child_by_index(3, 1));
+        assert_eq!(
+            Some((
+                File::Title(1).inode(),
+                File::Title(1).filetype(),
+                "title".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(3, 1)
+        );
+
+        assert_eq!(
+            Some((
+                File::Transcript(1).inode(),
+                File::Transcript(1).filetype(),
+                "transcript".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(4, 1)
+        );
+
+        assert_eq!(
+            Some((
+                File::Date(1).inode(),
+                File::Date(1).filetype(),
+                "date".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(5, 1)
+        );
+
+        assert_eq!(
+            Some((
+                File::RawImage(1).inode(),
+                File::RawImage(1).filetype(),
+                "raw_image".to_string(),
+            )),
+            File::MetaFolder(1).child_by_index(6, 1)
+        );
+
+        assert_eq!(None, File::MetaFolder(1).child_by_index(7, 1));
 
         assert_eq!(None, File::MetaFolder(2).child_by_index(0, 1));
     }

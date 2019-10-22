@@ -1,4 +1,4 @@
-mod file;
+pub mod file;
 
 use fuse::{
     FileAttr, Filesystem, ReplyAttr, ReplyData, ReplyEntry, ReplyOpen, ReplyWrite, Request,
@@ -48,6 +48,29 @@ impl XkcdFs {
 
         let rdev = 0;
         let flags = 0;
+        let nlink = 0;
+
+        let attrs = |size: Option<usize>, time: Option<Timespec>| {
+            let time = time.unwrap_or(EPOCH);
+            let size = size.map(|s| s as u64).unwrap_or(DEFAULT_SIZE);
+
+            Some(FileAttr {
+                ino: file.inode(),
+                size,
+                blocks: Self::blocks(size),
+                atime: time,
+                mtime: time,
+                ctime: time,
+                crtime: time,
+                kind: file.filetype(),
+                perm: DEFAULT_PERM,
+                nlink,
+                uid: request.uid(),
+                gid: request.gid(),
+                rdev,
+                flags,
+            })
+        };
 
         match file {
             File::Root => Some(FileAttr {
@@ -60,7 +83,7 @@ impl XkcdFs {
                 crtime: Timespec::new(0, 0),
                 kind: file.filetype(),
                 perm: DEFAULT_PERM,
-                nlink: 2,
+                nlink,
                 uid: request.uid(),
                 gid: request.gid(),
                 rdev,
@@ -76,56 +99,25 @@ impl XkcdFs {
                 crtime: Timespec::new(0, 0),
                 kind: file.filetype(),
                 perm: 0o666,
-                nlink: 1,
+                nlink,
                 uid: request.uid(),
                 gid: request.gid(),
                 rdev,
                 flags,
             }),
-            File::Credits => Some(FileAttr {
-                ino: file.inode(),
-                size: CREDITS_DATA.len() as u64,
-                blocks: Self::blocks(CREDITS_DATA.len() as u64),
-                atime: Timespec::new(0, 0),
-                mtime: Timespec::new(0, 0),
-                ctime: Timespec::new(0, 0),
-                crtime: Timespec::new(0, 0),
-                kind: file.filetype(),
-                perm: DEFAULT_PERM,
-                nlink: 1,
-                uid: request.uid(),
-                gid: request.gid(),
-                rdev,
-                flags,
-            }),
+            File::Credits => attrs(Some(CREDITS_DATA.len()), None),
             File::Image(num) => {
                 let comic: Option<Comic> = self.client.request_comic(num, None, VeryFast);
                 let image = comic
                     .as_ref()
                     .and_then(|c| self.client.request_rendered_image(&c, None, VeryFast));
 
-                let time = comic.map(|c| c.time()).unwrap_or(EPOCH);
+                debug!(
+                    "Rendered image has size {:?}",
+                    image.as_ref().map(|i| i.len())
+                );
 
-                // Default to std::i64::MAX because some programs interpret
-                // file sizes as *signed* integers and don't like values of -1
-                let size = image.map(|i| i.len() as u64).unwrap_or(DEFAULT_SIZE);
-
-                Some(FileAttr {
-                    ino: file.inode(),
-                    size,
-                    blocks: Self::blocks(size),
-                    atime: time,
-                    mtime: time,
-                    ctime: time,
-                    crtime: time,
-                    kind: file.filetype(),
-                    perm: DEFAULT_PERM,
-                    nlink: 1,
-                    uid: request.uid(),
-                    gid: request.gid(),
-                    rdev,
-                    flags,
-                })
+                attrs(image.map(|i| i.len()), comic.map(|c| c.time()))
             }
             File::MetaFolder(num) => {
                 let comic: Option<Comic> = self.client.request_comic(num, None, VeryFast);
@@ -142,7 +134,7 @@ impl XkcdFs {
                     crtime: time,
                     kind: file.filetype(),
                     perm: DEFAULT_PERM,
-                    nlink: 2,
+                    nlink,
                     uid: request.uid(),
                     gid: request.gid(),
                     rdev,
@@ -150,30 +142,43 @@ impl XkcdFs {
                 })
             }
             File::AltText(num) => {
+                let comic = self.client.request_comic(num, None, VeryFast);
+
+                attrs(comic.as_ref().map(|c| c.alt.len()), comic.map(|c| c.time()))
+            }
+            File::Title(num) => {
+                let comic = self.client.request_comic(num, None, VeryFast);
+
+                attrs(
+                    comic.as_ref().map(|c| c.title.len()),
+                    comic.map(|c| c.time()),
+                )
+            }
+            File::Transcript(num) => {
+                let comic = self.client.request_comic(num, None, VeryFast);
+
+                attrs(
+                    comic
+                        .as_ref()
+                        .and_then(|c| c.transcript.as_ref().map(|t| t.len())),
+                    comic.map(|c| c.time()),
+                )
+            }
+            File::Date(num) => {
+                let comic = self.client.request_comic(num, None, VeryFast);
+
+                attrs(
+                    comic.as_ref().map(|c| c.isodate().len()),
+                    comic.map(|c| c.time()),
+                )
+            }
+            File::RawImage(num) => {
                 let comic: Option<Comic> = self.client.request_comic(num, None, VeryFast);
-
-                let time = comic.as_ref().map(|c| c.time()).unwrap_or(EPOCH);
-                let size = comic
+                let raw_image = comic
                     .as_ref()
-                    .map(|c| c.alt.len() as u64)
-                    .unwrap_or(DEFAULT_SIZE);
+                    .and_then(|c| self.client.request_raw_image(&c, None, VeryFast));
 
-                Some(FileAttr {
-                    ino: file.inode(),
-                    size,
-                    blocks: Self::blocks(size),
-                    atime: time,
-                    mtime: time,
-                    ctime: time,
-                    crtime: time,
-                    kind: file.filetype(),
-                    perm: DEFAULT_PERM,
-                    nlink: 2,
-                    uid: request.uid(),
-                    gid: request.gid(),
-                    rdev,
-                    flags,
-                })
+                attrs(raw_image.map(|i| i.len()), comic.map(|c| c.time()))
             }
         }
     }
@@ -181,8 +186,14 @@ impl XkcdFs {
 
 impl<'q> Filesystem for XkcdFs {
     fn getattr(&mut self, req: &Request, ino: u64, reply: ReplyAttr) {
-        debug!("Getattr for inode {}", ino);
-        let attr = File::from_inode(ino).and_then(|f| self.file_attr(req, f));
+        let file = File::from_inode(ino);
+
+        match &file {
+            Some(f) => info!("getattr for {:?}", f),
+            None => warn!("getattr for invalid inode {:x}", ino),
+        }
+
+        let attr = file.and_then(|f| self.file_attr(req, f));
 
         match attr {
             None => reply.error(ENOENT),
@@ -198,22 +209,24 @@ impl<'q> Filesystem for XkcdFs {
         offset: i64,
         mut reply: fuse::ReplyDirectory,
     ) {
-        let file = match File::from_inode(ino) {
+        let file = File::from_inode(ino);
+
+        match &file {
+            Some(f) => info!("readdir for {:?} at offset {}", f, offset),
+            None => warn!("readdir for invalid inode {:x} at offset {}", ino, offset),
+        }
+
+        let file = match file {
             Some(f @ File::Root) => f,
-            Some(File::Refresh) => {
-                reply.error(ENOTDIR);
-                return;
-            }
-            Some(File::Credits) => {
-                reply.error(ENOTDIR);
-                return;
-            }
             Some(f @ File::MetaFolder(_)) => f,
-            Some(File::Image(_)) => {
-                reply.error(ENOTDIR);
-                return;
-            }
-            Some(File::AltText(_)) => {
+            Some(File::Refresh)
+            | Some(File::Credits)
+            | Some(File::Image(_))
+            | Some(File::AltText(_))
+            | Some(File::Title(_))
+            | Some(File::Transcript(_))
+            | Some(File::Date(_))
+            | Some(File::RawImage(_)) => {
                 reply.error(ENOTDIR);
                 return;
             }
@@ -246,8 +259,18 @@ impl<'q> Filesystem for XkcdFs {
         reply.ok();
     }
 
-    fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let attr = File::from_inode(parent)
+    fn lookup(&mut self, req: &Request, parent_ino: u64, name: &OsStr, reply: ReplyEntry) {
+        let parent = File::from_inode(parent_ino);
+
+        match &parent {
+            Some(p) => info!("lookup for {:?} with parent {:?}", name, p),
+            None => warn!(
+                "lookup for {:?} with invalid parent inode {}",
+                name, parent_ino
+            ),
+        }
+
+        let attr = parent
             .and_then(|p| File::from_filename(&p, name))
             .and_then(|f| self.file_attr(req, f));
 
@@ -266,10 +289,43 @@ impl<'q> Filesystem for XkcdFs {
         size: u32,
         reply: ReplyData,
     ) {
-        let f = File::from_inode(ino);
-        let range_end = offset + size as i64;
+        let file = File::from_inode(ino);
 
-        match f {
+        match &file {
+            Some(f) => info!("read for {:?} at {} size {}", f, offset, size),
+            None => warn!(
+                "read for invalid inode {:x} at {} size {}",
+                ino, offset, size
+            ),
+        }
+
+        // Utility function that handles some of the edge cases related to
+        // converting a slice into a response
+        let reply_from_slice = |bytes: Result<&[u8], i32>| {
+            let bytes = match bytes {
+                Ok(b) => b,
+                Err(code) => {
+                    reply.error(code);
+                    return;
+                }
+            };
+
+            let offset_usize: usize = offset.try_into().unwrap();
+
+            let range_end = std::cmp::min(offset_usize + size as usize, bytes.len());
+
+            if offset >= bytes.len() as i64 {
+                // Start of request is beyond the end of the range
+                reply.error(EINVAL);
+            } else if range_end <= offset_usize {
+                // Range ends before it begins
+                reply.error(EINVAL);
+            } else {
+                reply.data(&bytes[offset_usize..range_end]);
+            }
+        };
+
+        match file {
             Some(File::Image(num)) => {
                 debug!("Requesting image file for comic {}", num);
 
@@ -277,82 +333,57 @@ impl<'q> Filesystem for XkcdFs {
                 let image =
                     comic.and_then(|c| self.client.request_rendered_image(&c, None, Normal));
 
-                match image {
-                    None => {
-                        warn!("Could not get image data, returning EREMOTEIO");
-                        reply.error(EREMOTEIO)
-                    }
-                    Some(ref img_data) if offset >= img_data.len() as i64 => {
-                        warn!(
-                            "Could not index into offset {} with only {} bytes of data, returning EINVAL",
-                            offset,
-                            img_data.len()
-                        );
-                        reply.error(EINVAL)
-                    }
-                    Some(img_data) => {
-                        let range_end =
-                            std::cmp::min(range_end.try_into().unwrap(), img_data.len());
-                        info!(
-                            "Got {} bytes of image data, returning bytes {}..{}",
-                            img_data.len(),
-                            offset,
-                            range_end
-                        );
-                        reply.data(&img_data[offset as usize..range_end]);
-                    }
-                }
+                reply_from_slice(image.as_ref().map(Vec::as_slice).ok_or(EREMOTEIO))
             }
             Some(File::AltText(num)) => {
                 debug!("Requesting comic for alt text {}", num);
 
                 let comic = self.client.request_comic(num, None, Normal);
+                let string = comic.map(|c| c.alt);
+                let bytes = string.as_ref().map(String::as_bytes);
 
-                match comic {
-                    None => {
-                        warn!("Could not fetch comic {}, returning EREMOTEIO", num);
-                        reply.error(EREMOTEIO)
-                    }
-                    Some(ref comic) if offset >= comic.alt.len() as i64 => {
-                        warn!("Could not index into offset {} with only {} bytes of data, returning EINVAL",
-                              offset,
-                              comic.alt.len());
-                        reply.error(EINVAL);
-                    }
-                    Some(ref comic) => {
-                        let bytes = comic.alt.as_bytes();
-                        let range_end =
-                            std::cmp::min(range_end.try_into().unwrap(), comic.alt.len());
-
-                        reply.data(&bytes[offset as usize..range_end]);
-                    }
-                }
+                reply_from_slice(bytes.ok_or(EREMOTEIO))
             }
-            Some(File::Credits) => {
-                let bytes = CREDITS_DATA.as_bytes();
-                let range_end = std::cmp::min(range_end.try_into().unwrap(), bytes.len());
-
-                if offset >= bytes.len() as i64 {
-                    reply.error(EINVAL);
-                } else {
-                    reply.data(&bytes[offset as usize..range_end]);
-                }
-            }
+            Some(File::Credits) => reply_from_slice(Ok(CREDITS_DATA.as_bytes())),
             Some(File::Refresh) => {
-                debug!("Refreshing comic");
-                reply.data(&[]);
+                debug!("Refreshing latest comic");
+                reply_from_slice(Ok(&[]))
             }
-            Some(f @ File::Root) => {
-                warn!("{:?} is a directory, returning EISDIR", f);
-                reply.error(EISDIR)
+            Some(File::Title(num)) => {
+                let comic = self.client.request_comic(num, None, Normal);
+                let string = comic.map(|c| c.title);
+                let bytes = string.as_ref().map(String::as_bytes);
+
+                reply_from_slice(bytes.ok_or(EREMOTEIO))
             }
-            Some(f @ File::MetaFolder(_)) => {
+            Some(File::Transcript(num)) => {
+                let comic = self.client.request_comic(num, None, Normal);
+                let string = comic.and_then(|c| c.transcript);
+                let bytes = string.as_ref().map(String::as_bytes);
+
+                reply_from_slice(bytes.ok_or(EREMOTEIO))
+            }
+            Some(File::Date(num)) => {
+                let comic = self.client.request_comic(num, None, Normal);
+                let string = comic.map(|c| c.isodate());
+                let bytes = string.as_ref().map(String::as_bytes);
+
+                reply_from_slice(bytes.ok_or(EREMOTEIO))
+            }
+            Some(File::RawImage(num)) => {
+                let comic = self.client.request_comic(num, None, Normal);
+                let raw_image = comic.and_then(|c| self.client.request_raw_image(&c, None, Normal));
+
+                reply_from_slice(raw_image.as_ref().map(Vec::as_slice).ok_or(EREMOTEIO));
+            }
+            Some(f @ File::Root) | Some(f @ File::MetaFolder(_)) => {
                 warn!("{:?} is a directory, returning EISDIR", f);
-                reply.error(EISDIR)
+
+                reply_from_slice(Err(EISDIR))
             }
             None => {
                 warn!("File does not exist, returning ENOENT");
-                reply.error(ENOENT)
+                reply_from_slice(Err(ENOENT))
             }
         };
     }
@@ -361,12 +392,35 @@ impl<'q> Filesystem for XkcdFs {
         use File::*;
         const DEFAULT_FLAGS: u32 = 0;
 
-        match File::from_inode(ino) {
+        let file = File::from_inode(ino);
+
+        match &file {
+            Some(f) => info!("open for {:?}", f),
+            None => warn!("open for invalid inode {:x}", ino),
+        }
+
+        match file {
             Some(Root) | Some(MetaFolder(_)) => reply.error(EISDIR),
-            Some(Refresh) | Some(Credits) | Some(AltText(_)) => {
-                reply.opened(self.gen_fh(), DEFAULT_FLAGS)
+            Some(Refresh) | Some(Credits) => reply.opened(self.gen_fh(), DEFAULT_FLAGS),
+            Some(AltText(num)) | Some(Title(num)) | Some(Transcript(num)) | Some(Date(num)) => {
+                match self.client.request_comic(num, None, Normal) {
+                    Some(_) => reply.opened(self.gen_fh(), DEFAULT_FLAGS),
+                    None => reply.error(EREMOTEIO),
+                }
             }
-            Some(Image(num)) => match self.client.request_comic(num, None, Normal) {
+            Some(Image(num)) => match self
+                .client
+                .request_comic(num, None, Normal)
+                .and_then(|c| self.client.request_rendered_image(&c, None, Normal))
+            {
+                Some(_) => reply.opened(self.gen_fh(), DEFAULT_FLAGS),
+                None => reply.error(EREMOTEIO),
+            },
+            Some(RawImage(num)) => match self
+                .client
+                .request_comic(num, None, Normal)
+                .and_then(|c| self.client.request_raw_image(&c, None, Normal))
+            {
                 Some(_) => reply.opened(self.gen_fh(), DEFAULT_FLAGS),
                 None => reply.error(EREMOTEIO),
             },
@@ -384,7 +438,18 @@ impl<'q> Filesystem for XkcdFs {
         _flags: u32,
         reply: ReplyWrite,
     ) {
-        match File::from_inode(ino) {
+        let file = File::from_inode(ino);
+
+        match &file {
+            Some(f) => info!("write for {:?} with {} bytes of data", f, data.len()),
+            None => warn!(
+                "write for invalid inode {:x} with {} bytes of data",
+                ino,
+                data.len()
+            ),
+        }
+
+        match file {
             Some(File::Refresh) => {
                 info!("Refreshing latest comic (via write)");
 
@@ -414,7 +479,14 @@ impl<'q> Filesystem for XkcdFs {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        match File::from_inode(ino) {
+        let file = File::from_inode(ino);
+
+        match &file {
+            Some(f) => info!("setattr for {:?}", f),
+            None => warn!("setattr for invalid inode {:x}", ino),
+        }
+
+        match file {
             Some(File::Refresh) => {
                 info!("Refreshing latest comic (via setattr)");
 

@@ -17,7 +17,7 @@ struct ApiComic {
     title: String,
     safe_title: String,
 
-    transcript: String,
+    transcript: Option<String>,
     img: String,
 }
 
@@ -45,6 +45,7 @@ impl TryInto<Comic> for ApiComic {
 
             title: self.title,
             safe_title: self.safe_title,
+            transcript: self.transcript,
 
             img_url: self.img,
             img_len: None,
@@ -52,7 +53,7 @@ impl TryInto<Comic> for ApiComic {
     }
 }
 
-pub fn get_comic(client: &reqwest::Client, num: Option<u32>) -> Option<Comic> {
+pub fn get_comic(client: &reqwest::Client, num: Option<u32>) -> Result<Comic, String> {
     let url = match num {
         Some(i) => format!("https://xkcd.com/{}/info.0.json", i),
         None => "https://xkcd.com/info.0.json".to_string(),
@@ -61,22 +62,22 @@ pub fn get_comic(client: &reqwest::Client, num: Option<u32>) -> Option<Comic> {
     client
         .get(&url)
         .send()
-        .ok()?
+        .map_err(|e| e.to_string())?
         .json::<ApiComic>()
-        .ok()?
+        .map_err(|e| e.to_string())?
         .try_into()
-        .ok()
+        .map_err(|e: std::num::ParseIntError| e.to_string())
 }
 
-pub fn get_image(client: &reqwest::Client, comic: &Comic) -> Option<Vec<u8>> {
+pub fn get_image(client: &reqwest::Client, comic: &Comic) -> Result<Vec<u8>, String> {
     let mut buf: Vec<u8> = vec![];
 
     client
         .get(&comic.img_url)
         .send()
-        .ok()?
+        .map_err(|e| e.to_string())?
         .copy_to(&mut buf)
-        .ok()?;
+        .map_err(|e| e.to_string())?;
 
-    Some(buf)
+    Ok(buf)
 }
