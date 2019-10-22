@@ -14,6 +14,7 @@ pub struct Comic {
 
     pub title: String,
     pub safe_title: String,
+    pub transcript: Option<String>,
 
     pub img_url: String,
 
@@ -36,6 +37,10 @@ impl Comic {
             tm_nsec: 0,
         }
         .to_timespec()
+    }
+
+    pub fn isodate(&self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
     }
 }
 

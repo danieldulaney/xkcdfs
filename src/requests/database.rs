@@ -1,9 +1,9 @@
-use rusqlite::{Result, ToSql, NO_PARAMS};
+use rusqlite::{ToSql, NO_PARAMS};
 use std::convert::TryInto;
 
 use crate::Comic;
 
-pub fn setup(conn: &rusqlite::Connection) -> Result<()> {
+pub fn setup(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     info!("Setting up database");
 
     conn.execute(
@@ -21,6 +21,7 @@ pub fn setup(conn: &rusqlite::Connection) -> Result<()> {
 
             title STRING,
             safe_title STRING,
+            transcript STRING,
 
             img_url STRING
         );",
@@ -62,13 +63,15 @@ fn row_to_comic(row: &rusqlite::Row) -> rusqlite::Result<Comic> {
 
         title: row.get("title")?,
         safe_title: row.get("safe_title")?,
+        transcript: row.get("transcript")?,
 
         img_url: row.get("img_url")?,
         img_len: None,
     })
 }
 
-pub fn get_comics(conn: &rusqlite::Connection) -> impl Iterator<Item = Option<Comic>> {
+#[allow(unreachable_code)]
+pub fn get_comics(_conn: &rusqlite::Connection) -> impl Iterator<Item = Option<Comic>> {
     unimplemented!();
     std::iter::empty()
 }
@@ -80,16 +83,15 @@ pub fn get_comics_count(conn: &rusqlite::Connection) -> usize {
         .unwrap_or(0) // Return 0 on over (or under?) flow
 }
 
-pub fn get_latest_comic(conn: &rusqlite::Connection) -> Option<Comic> {
+pub fn get_latest_comic(conn: &rusqlite::Connection) -> rusqlite::Result<Option<Comic>> {
     unimplemented!()
 }
 
-pub fn get_comic(conn: &rusqlite::Connection, num: u32) -> Option<Comic> {
+pub fn get_comic(conn: &rusqlite::Connection, num: u32) -> rusqlite::Result<Option<Comic>> {
     trace!("Fetching comic {} from database", num);
 
-    let mut statement = conn
-        .prepare(
-            "
+    let mut statement = conn.prepare(
+        "
             SELECT 
                 num,
                 day,
@@ -100,27 +102,24 @@ pub fn get_comic(conn: &rusqlite::Connection, num: u32) -> Option<Comic> {
                 alt,
                 title,
                 safe_title,
+                transcript,
                 img_url
             FROM comics
             WHERE num==?;",
-        )
-        .ok()?;
+    )?;
 
     let mut results = match statement.query_map(&[&num], row_to_comic) {
         Err(e) => {
             warn!("Database error while retrieving comic {}: {}", num, e);
-            return None;
+            return Err(e);
         }
         Ok(r) => r,
     };
 
-    match results.next().transpose().ok()? {
-        Some(s) => Some(s),
-        None => None,
-    }
+    results.next().transpose()
 }
 
-pub fn insert_comic(conn: &rusqlite::Connection, comic: &Comic) -> Result<()> {
+pub fn insert_comic(conn: &rusqlite::Connection, comic: &Comic) -> rusqlite::Result<()> {
     let mut statement = conn
         .prepare(
             "
@@ -134,8 +133,10 @@ pub fn insert_comic(conn: &rusqlite::Connection, comic: &Comic) -> Result<()> {
                 alt,
                 title,
                 safe_title,
+                transcript,
                 img_url
             ) VALUES (
+                ?,
                 ?,
                 ?,
                 ?,
@@ -160,13 +161,14 @@ pub fn insert_comic(conn: &rusqlite::Connection, comic: &Comic) -> Result<()> {
         &comic.alt as &dyn ToSql,
         &comic.title as &dyn ToSql,
         &comic.safe_title as &dyn ToSql,
+        &comic.transcript as &dyn ToSql,
         &comic.img_url as &dyn ToSql,
     ])?;
 
     Ok(())
 }
 
-pub fn get_raw_image(conn: &rusqlite::Connection, num: u32) -> Result<Vec<u8>> {
+pub fn get_raw_image(conn: &rusqlite::Connection, num: u32) -> rusqlite::Result<Vec<u8>> {
     let mut statement = conn
         .prepare(
             "
@@ -177,7 +179,7 @@ pub fn get_raw_image(conn: &rusqlite::Connection, num: u32) -> Result<Vec<u8>> {
 
     debug!("Retrieving comic {} raw image", num);
 
-    let data: Result<Vec<u8>> = statement.query_row(&[num], |r| r.get("raw_image"));
+    let data: rusqlite::Result<Vec<u8>> = statement.query_row(&[num], |r| r.get("raw_image"));
 
     match data {
         Ok(ref d) => debug!(
@@ -194,7 +196,11 @@ pub fn get_raw_image(conn: &rusqlite::Connection, num: u32) -> Result<Vec<u8>> {
     data
 }
 
-pub fn insert_raw_image(conn: &rusqlite::Connection, num: u32, data: &[u8]) -> Result<()> {
+pub fn insert_raw_image(
+    conn: &rusqlite::Connection,
+    num: u32,
+    data: &[u8],
+) -> rusqlite::Result<()> {
     let mut statement = conn
         .prepare("INSERT OR REPLACE INTO raw_images (num, raw_image) VALUES (?, ?)")
         .unwrap();
@@ -210,7 +216,7 @@ pub fn insert_raw_image(conn: &rusqlite::Connection, num: u32, data: &[u8]) -> R
     result.map(|_| ())
 }
 
-pub fn get_rendered_image(conn: &rusqlite::Connection, num: u32) -> Result<Vec<u8>> {
+pub fn get_rendered_image(conn: &rusqlite::Connection, num: u32) -> rusqlite::Result<Vec<u8>> {
     debug!("Retrieving comic {} rendered image", num);
 
     let mut statement = conn
@@ -221,7 +227,7 @@ pub fn get_rendered_image(conn: &rusqlite::Connection, num: u32) -> Result<Vec<u
         )
         .unwrap();
 
-    let data: Result<Vec<u8>> = statement.query_row(&[num], |r| r.get("rendered_image"));
+    let data: rusqlite::Result<Vec<u8>> = statement.query_row(&[num], |r| r.get("rendered_image"));
 
     match data {
         Ok(ref d) => debug!(
@@ -238,7 +244,11 @@ pub fn get_rendered_image(conn: &rusqlite::Connection, num: u32) -> Result<Vec<u
     data
 }
 
-pub fn insert_rendered_image(conn: &rusqlite::Connection, num: u32, data: &[u8]) -> Result<()> {
+pub fn insert_rendered_image(
+    conn: &rusqlite::Connection,
+    num: u32,
+    data: &[u8],
+) -> rusqlite::Result<()> {
     let mut statement = conn
         .prepare("INSERT OR REPLACE INTO rendered_images (num, rendered_image) VALUES (?, ?)")
         .unwrap();

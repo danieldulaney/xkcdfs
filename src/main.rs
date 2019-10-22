@@ -6,6 +6,7 @@ mod image;
 mod requests;
 mod xkcd;
 
+pub use fs::file::File;
 pub use requests::XkcdClient;
 pub use xkcd::Comic;
 
@@ -16,7 +17,7 @@ use std::ffi::OsStr;
 fn main() {
     env_logger::init();
 
-    let client = XkcdClient::new(std::time::Duration::from_secs(1));
+    let client = XkcdClient::new(std::time::Duration::from_secs(5));
 
     info!("Requesting latest comic (to get file count)");
 

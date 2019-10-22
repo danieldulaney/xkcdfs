@@ -81,8 +81,10 @@ impl XkcdClient {
         if mode.cache() {
             trace!("Trying the cache for the latest comic");
 
-            if let Some(c) = database::get_latest_comic(&self.conn) {
-                return Some(c);
+            match database::get_latest_comic(&self.conn) {
+                Ok(Some(c)) => return Some(c),
+                Ok(None) => warn!("Could not find latest comic in cache"),
+                Err(e) => error!("Cache error retrieving latest comic: {}", e),
             }
         } else {
             trace!(
@@ -94,9 +96,12 @@ impl XkcdClient {
         if mode.network() {
             trace!("Trying the network for the latest comic");
 
-            if let Some(c) = api::get_comic(&self.client, None) {
-                database::insert_comic(&self.conn, &c).ok();
-                return Some(c);
+            match api::get_comic(&self.client, None) {
+                Ok(c) => {
+                    database::insert_comic(&self.conn, &c).ok();
+                    return Some(c);
+                }
+                Err(e) => warn!("Could not get latest comic on the network: {}", e),
             }
         } else {
             trace!(
@@ -121,8 +126,10 @@ impl XkcdClient {
         if mode.cache() {
             trace!("Trying the cache for comic {}", num);
 
-            if let Some(c) = database::get_comic(&self.conn, num) {
-                return Some(c);
+            match database::get_comic(&self.conn, num) {
+                Ok(Some(c)) => return Some(c),
+                Ok(None) => info!("Comic {} not found in cache", num),
+                Err(e) => error!("Error retreiving {} from cache: {}", num, e),
             }
         } else {
             trace!("Skipping the cache for comic {} (mode was {:?})", num, mode);
@@ -131,9 +138,12 @@ impl XkcdClient {
         if mode.network() {
             trace!("Trying the network for comic {}", num);
 
-            if let Some(c) = api::get_comic(&self.client, Some(num)) {
-                database::insert_comic(&self.conn, &c).unwrap();
-                return Some(c);
+            match api::get_comic(&self.client, Some(num)) {
+                Ok(c) => {
+                    database::insert_comic(&self.conn, &c).unwrap();
+                    return Some(c);
+                }
+                Err(e) => debug!("Comic {} not found on network: {}", num, e),
             }
         } else {
             trace!(
@@ -159,6 +169,8 @@ impl XkcdClient {
 
             if let Ok(i) = database::get_raw_image(&self.conn, comic.num) {
                 return Some(i);
+            } else {
+                debug!("Raw image {} not found in cache", comic);
             }
         } else {
             trace!(
@@ -169,14 +181,15 @@ impl XkcdClient {
         }
 
         if mode.network() {
-            if let Some(i) = api::get_image(&self.client, &comic) {
-                database::insert_raw_image(&self.conn, comic.num, &i).ok();
-                return Some(i);
-            } else {
-                warn!(
-                    "Could not get raw image {} from URL {}",
-                    comic, comic.img_url
-                );
+            match api::get_image(&self.client, &comic) {
+                Ok(i) => {
+                    database::insert_raw_image(&self.conn, comic.num, &i).ok();
+                    return Some(i);
+                }
+                Err(e) => warn!(
+                    "Could not get raw image {} from URL {}: {}",
+                    comic, comic.img_url, e
+                ),
             }
         }
 
