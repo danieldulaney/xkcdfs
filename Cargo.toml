@@ -27,8 +27,8 @@ jpeg-decoder = { version = "0.1", default-features = false }
 unicode-linebreak = "0.1.0"
 
 # For logging
-log = "*"
-env_logger = "0.7"
+log = "0.4"
+simplelog = "0.7"
 
 # For command-line parsing
 clap = "2.33"

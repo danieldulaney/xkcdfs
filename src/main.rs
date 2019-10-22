@@ -14,14 +14,13 @@ pub use xkcd::Comic;
 use requests::RequestMode::*;
 use std::ffi::OsStr;
 use std::time::Duration;
+use simplelog::{SimpleLogger, ConfigBuilder};
 
 fn main() {
-    env_logger::init();
+    let (timeout, mountpoint, database, log_level) = cli::get_args().unwrap();
 
-    let (timeout, mountpoint, database) = match cli::get_args() {
-        Some(args) => args,
-        None => return,
-    };
+    SimpleLogger::init(log_level, ConfigBuilder::new()
+                       .add_filter_allow_str("xkcdfs").build()).unwrap();
 
     let client = XkcdClient::new(Duration::from_secs(timeout), &database);
 
