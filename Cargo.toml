@@ -2,10 +2,11 @@
 name = "xkcdfs"
 version = "0.1.0"
 authors = ["Daniel Dulaney <dan@dulaney.xyz>"]
+description = "Browse xkcd in comfort and style"
 edition = "2018"
 
 [dependencies]
-# FUSE and some dependencies I need access to
+# FUSE and some needed sub-dependencies
 fuse = "0.3.1"
 libc = "*"
 time = "*"
@@ -28,6 +29,9 @@ unicode-linebreak = "0.1.0"
 # For logging
 log = "*"
 env_logger = "0.7"
+
+# For command-line parsing
+clap = "2.33"
 
 [patch.crates-io]
 jpeg-decoder = { git = "https://github.com/danieldulaney/jpeg-decoder.git", branch = "pixel-format-sizes" }
