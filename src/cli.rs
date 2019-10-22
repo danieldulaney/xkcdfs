@@ -1,7 +1,8 @@
 use clap::{App, Arg};
+use log::LevelFilter;
 use std::ffi::OsString;
 
-pub fn get_args() -> Option<(u64, OsString, OsString)> {
+pub fn get_args() -> Option<(u64, OsString, OsString, LevelFilter)> {
     let matches = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
@@ -29,6 +30,18 @@ pub fn get_args() -> Option<(u64, OsString, OsString)> {
                 .short("t")
                 .long("timeout")
                 .default_value("5"),
+        )
+        .arg(
+            Arg::with_name("quiet")
+                .short("q")
+                .multiple(true)
+                .help("Reduce output level"),
+        )
+        .arg(
+            Arg::with_name("verbose")
+                .short("v")
+                .multiple(true)
+                .help("Increase output level"),
         )
         .get_matches();
 
@@ -59,5 +72,17 @@ pub fn get_args() -> Option<(u64, OsString, OsString)> {
         Some(d) => d,
     };
 
-    Some((timeout, path.to_owned(), database.to_owned()))
+    let verbosity_level: i64 = 3 - matches.occurrences_of("quiet") as i64 + matches.occurrences_of("verbose") as i64;
+
+    use LevelFilter::*;
+    let log_level = match verbosity_level {
+        std::i64::MIN..=0 => Off,
+        1 => Error,
+        2 => Warn,
+        3 => Info,
+        4 => Debug,
+        5..=std::i64::MAX => Trace,
+    };
+
+    Some((timeout, path.to_owned(), database.to_owned(), log_level))
 }
