@@ -1,10 +1,9 @@
 use crate::Comic;
+use std::ffi::OsStr;
 use std::time::Duration;
 
 mod api;
 mod database;
-
-static SQLITE_DB: &str = "/dev/shm/test.db";
 
 #[derive(Clone, Debug)]
 pub enum RequestMode {
@@ -49,13 +48,13 @@ pub struct XkcdClient {
 }
 
 impl XkcdClient {
-    pub fn new(master_timeout: Duration) -> Self {
+    pub fn new(master_timeout: Duration, database: &OsStr) -> Self {
         let new = Self {
             client: reqwest::Client::builder()
                 .timeout(master_timeout)
                 .build()
                 .unwrap(),
-            conn: rusqlite::Connection::open(SQLITE_DB).expect("Failed to connect to SQLite DB"),
+            conn: rusqlite::Connection::open(database).expect("Failed to connect to SQLite DB"),
         };
 
         database::setup(&new.conn).expect("Failed to set up SQLite DB");
