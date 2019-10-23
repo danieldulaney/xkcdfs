@@ -17,12 +17,12 @@ use std::time::Duration;
 use simplelog::{SimpleLogger, ConfigBuilder};
 
 fn main() {
-    let (timeout, mountpoint, database, log_level) = cli::get_args().unwrap();
+    let conf = cli::get_args().unwrap();
 
-    SimpleLogger::init(log_level, ConfigBuilder::new()
+    SimpleLogger::init(conf.log_level, ConfigBuilder::new()
                        .add_filter_allow_str("xkcdfs").build()).unwrap();
 
-    let client = XkcdClient::new(Duration::from_secs(timeout), &database);
+    let client = XkcdClient::new(conf.timeout, &conf.database);
 
     info!("Requesting latest comic (to get file count)");
 
@@ -44,7 +44,7 @@ fn main() {
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
 
-    match fuse::mount(fs, &mountpoint, &options) {
+    match fuse::mount(fs, &conf.mountpoint, &options) {
         Err(e) => error!("Mounting error: {}", e),
         Ok(()) => info!("Exiting gracefully"),
     }
