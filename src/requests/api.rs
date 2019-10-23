@@ -1,4 +1,5 @@
 use crate::Comic;
+use reqwest::header::USER_AGENT;
 use serde::Deserialize;
 use std::convert::TryInto;
 
@@ -53,7 +54,11 @@ impl TryInto<Comic> for ApiComic {
     }
 }
 
-pub fn get_comic(client: &reqwest::Client, num: Option<u32>) -> Result<Comic, String> {
+pub fn get_comic(
+    client: &reqwest::Client,
+    user_agent: &str,
+    num: Option<u32>,
+) -> Result<Comic, String> {
     let url = match num {
         Some(i) => format!("https://xkcd.com/{}/info.0.json", i),
         None => "https://xkcd.com/info.0.json".to_string(),
@@ -61,6 +66,7 @@ pub fn get_comic(client: &reqwest::Client, num: Option<u32>) -> Result<Comic, St
 
     client
         .get(&url)
+        .header(USER_AGENT, user_agent)
         .send()
         .map_err(|e| e.to_string())?
         .json::<ApiComic>()
@@ -69,11 +75,16 @@ pub fn get_comic(client: &reqwest::Client, num: Option<u32>) -> Result<Comic, St
         .map_err(|e: std::num::ParseIntError| e.to_string())
 }
 
-pub fn get_image(client: &reqwest::Client, comic: &Comic) -> Result<Vec<u8>, String> {
+pub fn get_image(
+    client: &reqwest::Client,
+    user_agent: &str,
+    comic: &Comic,
+) -> Result<Vec<u8>, String> {
     let mut buf: Vec<u8> = vec![];
 
     client
         .get(&comic.img_url)
+        .header(USER_AGENT, user_agent)
         .send()
         .map_err(|e| e.to_string())?
         .copy_to(&mut buf)
