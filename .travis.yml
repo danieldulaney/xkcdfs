@@ -1,0 +1,12 @@
+language: rust
+cache: cargo
+rust:
+    - stable
+    - beta
+    - nightly
+matrix:
+    allow_failures:
+        - rust: nightly
+    fast_finish: true
+install:
+  - sudo apt-get update && sudo apt-get install -y libfuse-dev pkg-config
