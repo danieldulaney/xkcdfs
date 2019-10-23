@@ -12,17 +12,19 @@ pub use requests::XkcdClient;
 pub use xkcd::Comic;
 
 use requests::RequestMode::*;
+use simplelog::{ConfigBuilder, SimpleLogger};
 use std::ffi::OsStr;
-use std::time::Duration;
-use simplelog::{SimpleLogger, ConfigBuilder};
 
 fn main() {
     let conf = cli::get_args().unwrap();
 
-    SimpleLogger::init(conf.log_level, ConfigBuilder::new()
-                       .add_filter_allow_str("xkcdfs").build()).unwrap();
+    SimpleLogger::init(
+        conf.log_level,
+        ConfigBuilder::new().add_filter_allow_str("xkcdfs").build(),
+    )
+    .unwrap();
 
-    let client = XkcdClient::new(conf.timeout, &conf.database);
+    let client = XkcdClient::new(conf.timeout, &conf.database, conf.user_agent);
 
     info!("Requesting latest comic (to get file count)");
 

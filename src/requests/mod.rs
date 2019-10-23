@@ -45,16 +45,20 @@ impl RequestMode {
 pub struct XkcdClient {
     client: reqwest::Client,
     conn: rusqlite::Connection,
+
+    user_agent: String,
 }
 
 impl XkcdClient {
-    pub fn new(master_timeout: Duration, database: &OsStr) -> Self {
+    pub fn new(master_timeout: Duration, database: &OsStr, user_agent: String) -> Self {
         let new = Self {
             client: reqwest::Client::builder()
                 .timeout(master_timeout)
                 .build()
                 .unwrap(),
             conn: rusqlite::Connection::open(database).expect("Failed to connect to SQLite DB"),
+
+            user_agent,
         };
 
         database::setup(&new.conn).expect("Failed to set up SQLite DB");
@@ -95,7 +99,7 @@ impl XkcdClient {
         if mode.network() {
             trace!("Trying the network for the latest comic");
 
-            match api::get_comic(&self.client, None) {
+            match api::get_comic(&self.client, &self.user_agent, None) {
                 Ok(c) => {
                     database::insert_comic(&self.conn, &c).ok();
                     return Some(c);
@@ -137,7 +141,7 @@ impl XkcdClient {
         if mode.network() {
             trace!("Trying the network for comic {}", num);
 
-            match api::get_comic(&self.client, Some(num)) {
+            match api::get_comic(&self.client, &self.user_agent, Some(num)) {
                 Ok(c) => {
                     database::insert_comic(&self.conn, &c).unwrap();
                     return Some(c);
@@ -180,7 +184,7 @@ impl XkcdClient {
         }
 
         if mode.network() {
-            match api::get_image(&self.client, &comic) {
+            match api::get_image(&self.client, &self.user_agent, &comic) {
                 Ok(i) => {
                     database::insert_raw_image(&self.conn, comic.num, &i).ok();
                     return Some(i);
